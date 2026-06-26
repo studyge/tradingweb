@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+import { DrawingManager } from './DrawingManager';
 import { Play, Pause, SkipForward, Square, Minus, TrendingUp, TrendingDown } from 'lucide-react';
 
 interface CandleData {
@@ -40,7 +41,10 @@ export default function ChartWidget({ symbol }: { symbol: string }) {
     sl: number;
   }
   
-  const [positions, setPositions] = useState<PositionOverlay[]>([]);
+  const drawingManagerRef = useRef(new DrawingManager());
+
+const [positions, setPositions] = useState<PositionOverlay[]>([]);
+const drawingManager = drawingManagerRef.current;
   const [renderedPositions, setRenderedPositions] = useState<any[]>([]);
   
   const [historicalData, setHistoricalData] = useState<CandleData[]>([]);
@@ -123,13 +127,25 @@ export default function ChartWidget({ symbol }: { symbol: string }) {
       const currentTool = activeToolRef.current;
 
       if (price !== null && currentTool === 'hline') {
-        candleSeries.createPriceLine({
-          price: price,
-          color: '#2962ff',
-          lineWidth: 2,
-          lineStyle: 0,
-          axisLabelVisible: true,
+
+        drawingManager.add({
+          id: crypto.randomUUID(),
+          type: "horizontal",
+          points: [{
+            time,
+            price
+          }],
+          selected: false,
+          locked: false,
+          visible: true,
+          style: {
+            color: "#2962ff",
+            width: 2
+          }
         });
+
+        console.log(drawingManager.getAll());
+
         setActiveTool('cursor');
       }
       
