@@ -46,6 +46,7 @@ export default function ChartWidget({ symbol }: { symbol: string }) {
 const [positions, setPositions] = useState<PositionOverlay[]>([]);
 const drawingManager = drawingManagerRef.current;
   const [renderedPositions, setRenderedPositions] = useState<any[]>([]);
+const [renderedDrawings, setRenderedDrawings] = useState<any[]>([]);
   
   const [historicalData, setHistoricalData] = useState<CandleData[]>([]);
   const [visibleData, setVisibleData] = useState<CandleData[]>([]);
@@ -181,6 +182,18 @@ const drawingManager = drawingManagerRef.current;
   // Sync Overlay Coordinates
   const updateOverlays = useCallback(() => {
     if (!chart || !candlestickSeries) return;
+    const drawings = drawingManager.getAll()
+      .filter(d => d.type === "horizontal")
+      .map(d => ({
+        id: d.id,
+        y: candlestickSeries.priceToCoordinate(d.points[0].price),
+        color: d.style.color,
+        width: d.style.width
+      }))
+      .filter(d => d.y !== null);
+
+    setRenderedDrawings(drawings);
+
     const newRendered = positions.map(pos => {
       const x = chart.timeScale().timeToCoordinate(pos.time);
       const entryY = candlestickSeries.priceToCoordinate(pos.price);
@@ -362,6 +375,19 @@ const drawingManager = drawingManagerRef.current;
         
         {/* Drawing Overlays */}
         <div className="absolute inset-0 z-10 pointer-events-none">
+
+          {renderedDrawings.map(line => (
+            <div
+              key={line.id}
+              className="absolute left-0 right-0"
+              style={{
+                top: line.y,
+                height: `${line.width}px`,
+                background: line.color,
+                pointerEvents: "none"
+              }}
+            />
+          ))}
           {renderedPositions.map(pos => {
             if (pos.x === undefined || pos.entryY === undefined || pos.tpY === undefined || pos.slY === undefined) return null;
           
