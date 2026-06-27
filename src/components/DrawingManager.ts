@@ -27,31 +27,71 @@ export type DrawingType =
 
                                 export class DrawingManager {
                                   private drawings: DrawingObject[] = [];
+  private listeners: Map<string, Set<Function>> = new Map();
 
-                                    getAll() {
-                                        return this.drawings;
-                                          }
+  getAll() {
+    return this.drawings;
+  }
 
-                                            add(drawing: DrawingObject) {
-                                                this.drawings.push(drawing);
-                                                  }
+  add(drawing: DrawingObject) {
+    this.drawings.push(drawing);
+    this.emit('change');
+  }
 
-                                                    remove(id: string) {
-                                                        this.drawings = this.drawings.filter(d => d.id !== id);
-                                                          }
+  remove(id: string) {
+    this.drawings = this.drawings.filter(d => d.id !== id);
+    this.emit('delete');
+  }
 
-                                                            clearSelection() {
-                                                                this.drawings.forEach(d => d.selected = false);
-                                                                  }
+  removeSelected() {
+    const hasSelected = this.drawings.some(d => d.selected);
+    this.drawings = this.drawings.filter(d => !d.selected);
+    if (hasSelected) {
+      this.emit('delete');
+    }
+  }
 
-                                                                    select(id: string) {
-                                                                        this.clearSelection();
-                                                                            const obj = this.drawings.find(d => d.id === id);
-                                                                                if (obj) obj.selected = true;
-                                                                                  }
+  clearSelection() {
+    const wasAnySelected = this.drawings.some(d => d.selected);
+    this.drawings.forEach(d => d.selected = false);
+    if (wasAnySelected) {
+      this.emit('select');
+    }
+  }
 
-                                                                                    update(id: string, changes: Partial<DrawingObject>) {
-                                                                                        const obj = this.drawings.find(d => d.id === id);
-                                                                                            if (obj) Object.assign(obj, changes);
-                                                                                              }
-                                                                                              }
+  select(id: string) {
+    this.clearSelection();
+    const obj = this.drawings.find(d => d.id === id);
+    if (obj) {
+      obj.selected = true;
+      this.emit('select');
+    }
+  }
+
+  update(id: string, changes: Partial<DrawingObject>) {
+    const obj = this.drawings.find(d => d.id === id);
+    if (obj) {
+      Object.assign(obj, changes);
+      this.emit('change');
+    }
+  }
+
+  on(event: string, handler: Function) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event)!.add(handler);
+  }
+
+  off(event: string, handler: Function) {
+    if (this.listeners.has(event)) {
+      this.listeners.get(event)!.delete(handler);
+    }
+  }
+
+  private emit(event: string) {
+    if (this.listeners.has(event)) {
+      this.listeners.get(event)!.forEach(handler => handler());
+    }
+  }
+}

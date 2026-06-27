@@ -42,6 +42,8 @@ export default function ChartWidget({ symbol }: { symbol: string }) {
   }
   
   const drawingManagerRef = useRef(new DrawingManager());
+  const [previewPrice, setPreviewPrice] = useState<number | null>(null);
+  const dragStateRef = useRef<{ active: boolean; drawingId: string; startPrice: number } | null>(null);
 
 const [positions, setPositions] = useState<PositionOverlay[]>([]);
 const drawingManager = drawingManagerRef.current;
@@ -147,6 +149,7 @@ const [renderedDrawings, setRenderedDrawings] = useState<any[]>([]);
 
         console.log(drawingManager.getAll());
 
+        setPreviewPrice(null);
         setActiveTool('cursor');
       }
       
@@ -179,6 +182,93 @@ const [renderedDrawings, setRenderedDrawings] = useState<any[]>([]);
     };
   }, []); // Run ONCE on mount
 
+  useEffect(() => {
+    if (!chart || !candlestickSeries) return;
+
+    const handleMouseMove = (e: PointerEvent) => {
+      if (activeToolRef.current === 'hline' && chart && candlestickSeries && chartContainerRef.current) {
+        const rect = chartContainerRef.current.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const price = candlestickSeries.coordinateToPrice(y);
+        setPreviewPrice(price !== null ? price : null);
+      }
+
+      if (dragStateRef.current && dragStateRef.current.active && candlestickSeries && chart && chartContainerRef.current) {
+        const rect = chartContainerRef.current.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const newPrice = candlestickSeries.coordinateToPrice(y);
+        if (newPrice !== null) {
+          drawingManager.update(dragStateRef.current.drawingId, {
+            points: [{ time: 0, price: newPrice }]
+          });
+        }
+      }
+    };
+
+    const handleMouseDown = (e: PointerEvent) => {
+      if (activeToolRef.current !== 'cursor' || !candlestickSeries || !chartContainerRef.current) return;
+      const rect = chartContainerRef.current.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const price = candlestickSeries.coordinateToPrice(y);
+      if (price === null) return;
+
+      const hitLine = drawingManager.getAll()
+        .filter(d => d.type === 'horizontal' && d.visible)
+        .find(d => {
+          const lineY = candlestickSeries.priceToCoordinate(d.points[0].price);
+          return lineY !== null && Math.abs(y - lineY) <= 8;
+        });
+
+      if (hitLine) {
+        drawingManager.select(hitLine.id);
+        dragStateRef.current = { active: true, drawingId: hitLine.id, startPrice: price };
+      } else {
+        drawingManager.clearSelection();
+      }
+    };
+
+    const handleMouseUp = () => {
+      dragStateRef.current = null;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        drawingManager.removeSelected();
+      }
+    };
+
+    if (chartContainerRef.current) {
+      chartContainerRef.current.addEventListener('pointermove', handleMouseMove);
+      chartContainerRef.current.addEventListener('pointerdown', handleMouseDown);
+      window.addEventListener('pointerup', handleMouseUp);
+      window.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      if (chartContainerRef.current) {
+        chartContainerRef.current.removeEventListener('pointermove', handleMouseMove);
+        chartContainerRef.current.removeEventListener('pointerdown', handleMouseDown);
+      }
+      window.removeEventListener('pointerup', handleMouseUp);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [chart, candlestickSeries]);
+
+  // Listen to drawing manager changes to trigger re-render
+  useEffect(() => {
+    const handleChange = () => {
+      updateOverlays();
+    };
+    drawingManager.on('change', handleChange);
+    drawingManager.on('select', handleChange);
+    drawingManager.on('delete', handleChange);
+    return () => {
+      drawingManager.off('change', handleChange);
+      drawingManager.off('select', handleChange);
+      drawingManager.off('delete', handleChange);
+    };
+  }, []);
+
   // Sync Overlay Coordinates
   const updateOverlays = useCallback(() => {
     if (!chart || !candlestickSeries) return;
@@ -187,8 +277,9 @@ const [renderedDrawings, setRenderedDrawings] = useState<any[]>([]);
       .map(d => ({
         id: d.id,
         y: candlestickSeries.priceToCoordinate(d.points[0].price),
-        color: d.style.color,
-        width: d.style.width
+        color: d.selected ? '#2962ff' : d.style.color,
+        width: d.selected ? 3 : d.style.width,
+        selected: d.selected
       }))
       .filter(d => d.y !== null);
 
@@ -373,21 +464,38 @@ const [renderedDrawings, setRenderedDrawings] = useState<any[]>([]);
       <div className="flex-1 w-full relative overflow-hidden">
         <div className="absolute inset-0 z-0" ref={chartContainerRef} />
         
+        {/* Preview Ghost Line */}
+        {previewPrice !== null && activeToolRef.current === 'hline' && candlestickSeries && (
+          <div
+            className="absolute left-0 right-0 pointer-events-none"
+            style={{
+              top: candlestickSeries.priceToCoordinate(previewPrice) || 0,
+              height: '1px',
+              background: 'rgba(41, 98, 255, 0.5)',
+              borderTop: '1px dashed rgba(41, 98, 255, 0.5)'
+            }}
+          />
+        )}
+
+        {/* Horizontal Lines */}
+        {renderedDrawings.map(line => (
+          <div
+            key={line.id}
+            className="absolute left-0 right-0 group transition-all"
+            style={{
+              top: line.y,
+              height: `${line.width}px`,
+              background: line.color,
+              pointerEvents: "auto",
+              cursor: 'pointer',
+              opacity: line.selected ? 1 : 0.7,
+              boxShadow: line.selected ? `0 0 6px ${line.color}` : 'none'
+            }}
+          />
+        ))}
+
         {/* Drawing Overlays */}
         <div className="absolute inset-0 z-10 pointer-events-none">
-
-          {renderedDrawings.map(line => (
-            <div
-              key={line.id}
-              className="absolute left-0 right-0"
-              style={{
-                top: line.y,
-                height: `${line.width}px`,
-                background: line.color,
-                pointerEvents: "none"
-              }}
-            />
-          ))}
           {renderedPositions.map(pos => {
             if (pos.x === undefined || pos.entryY === undefined || pos.tpY === undefined || pos.slY === undefined) return null;
           
